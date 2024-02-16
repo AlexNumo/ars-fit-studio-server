@@ -136,7 +136,7 @@ const schema = new Schema(
                     type: String,
                     unique: false
                 },
-                kind_trainee: {
+                kind_training: {
                     type: String,
                     unique: false
                 },
@@ -153,7 +153,7 @@ const schema = new Schema(
                     type: String,
                     unique: false
                 },
-                visitTrainee: {
+                visitTraining: {
                     type: Boolean,
                     default: false,
                     unique: false
@@ -202,7 +202,7 @@ const schema = new Schema(
                 type: String,
                 unique: false
             },
-            kind_trainee: {
+            kind_training: {
                 type: String,
                 unique: false
             },
@@ -219,7 +219,7 @@ const schema = new Schema(
                 type: String,
                 unique: false
             },
-            visitTrainee: {
+            visitTraining: {
                 type: Boolean,
                 default: false,
                 unique: false

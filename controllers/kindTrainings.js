@@ -2,7 +2,7 @@ const kindTrainingsService = require('../services/kindTrainings.service');
 
 const listOfKindTrainings = async (req, res, next) => {
     try {
-        const all = await kindTrainingsService.listKindTrainee();
+        const all = await kindTrainingsService.listKindTraining();
         res.json(all);
     } catch (e) {
         next(e);
@@ -11,7 +11,7 @@ const listOfKindTrainings = async (req, res, next) => {
 
 const addKindTraining = async (req, res, next) => {
     try {
-        const data = await kindTrainingsService.addKindTrainee(req.body);
+        const data = await kindTrainingsService.addKindTraining(req.body);
         res.status(201).json(data);
     } catch (e) {
         if(e.message.includes('duplicate')){
@@ -23,7 +23,7 @@ const addKindTraining = async (req, res, next) => {
 
 const deleteKindTraining = async (req, res, next) => {
     try {
-        const data = await kindTrainingsService.deleteKindTrainee(req.body);
+        const data = await kindTrainingsService.deleteKindTraining(req.body);
         res.status(201).json(data);
     } catch (e) {
         next(e);

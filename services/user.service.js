@@ -148,25 +148,20 @@ const upgradeUserPassword = async (userData, res) => {
 
 const signUpTrainingFunction = async (userData) => {
     let messages = {};
-    const existingTraining = await User.findOne({
-        _id: userData.userID,
-        'trainings.day': userData.day,
-        'trainings.time': userData.time,
-        'trainings.kind_trainee': userData.kind_trainee,
-        'trainings.coach': userData.name_Coach,
-        'trainings.kind': userData.kind,
-    });
+    const newUserDate = new Date(userData.date);
+    const user = await User.findById(userData.userID);
+
+    const existingTraining = user.trainings.find(item => item.day === userData.day
+        && item.time === userData.time && item.kind === userData.kind
+        && item.date.toISOString().slice(0, 10) === newUserDate.toISOString().slice(0, 10));
 
     if (existingTraining) {
-       messages.error = 'Повторний запис на тренування';
+        messages.error = 'Повторний запис на тренування';
+        return messages={messages: messages};
     }
 
-    const user = await User.findById(userData.userID);
     const getIDSeasonTicket = user.seasonTickets[user.seasonTickets.length - 1]._id;
-    // const getIDSeasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketID.toString());
-    const getRemainderOfTrainings = getIDSeasonTicket.remainderOfTrainings;
-
-    // const getRemainderOfTrainings = user.seasonTickets[user.seasonTickets.length - 1].remainderOfTrainings;
+    const getRemainderOfTrainings = user.seasonTickets[user.seasonTickets.length - 1].remainderOfTrainings;
     
     if (getRemainderOfTrainings === 0) {
         messages.error = 'Кількість тренувань по абонементу закінчилася. Ви записані як на разове заняття';
@@ -180,11 +175,11 @@ const signUpTrainingFunction = async (userData) => {
                     seasonTicketsID: getRemainderOfTrainings === 0 ? 'without seasonTickets' : getIDSeasonTicket,
                     day: userData.day,
                     time: userData.time,
-                    kind_trainee: userData.kind_trainee,
+                    kind_training: userData.kind_training,
                     date: userData.date,
                     coach: userData.name_Coach,
                     kind: userData.kind,
-                    visitTrainee: false,
+                    visitTraining: false,
                     canceledTraining: false,
                     isTrainingReminderSent: false,
                 }
@@ -192,24 +187,29 @@ const signUpTrainingFunction = async (userData) => {
         },
         { new: true }
     );
+
     const newInfoUser = updatedUserTrainings.trainings[updatedUserTrainings.trainings.length - 1];
+    
+    const newTrainingInfo = {
+        idTraining: newInfoUser._id,
+        day: newInfoUser.day,
+        time: newInfoUser.time,
+        kind_training: newInfoUser.kind_training,
+        date: newInfoUser.date,
+        coach: newInfoUser.coach,
+        kind: newInfoUser.kind,
+        visitTraining: newInfoUser.visitTraining,
+        canceledTraining: newInfoUser.canceledTraining,
+        isTrainingReminderSent: newInfoUser.isTrainingReminderSent
+    };
     await User.updateOne(
         { 'seasonTickets._id': getIDSeasonTicket },
         { 
             $push: {
-                'seasonTickets.$.infoTrainings':
-                    { 
-                        day: newInfoUser.day,
-                        idTraining: getRemainderOfTrainings === 0 ? 'without seasonTickets' : newInfoUser._id,
-                        time: newInfoUser.time,
-                        kind_trainee: newInfoUser.kind_trainee,
-                        date: newInfoUser.date,
-                        coach: newInfoUser.coach,
-                        kind: newInfoUser.kind,
-                        visitTrainee: newInfoUser.visitTrainee,
-                        canceledTraining: newInfoUser.canceledTraining,
-                        isTrainingReminderSent: newInfoUser.isTrainingReminderSent,
-                    }
+                'seasonTickets.$.infoTrainings': newTrainingInfo
+            },
+            $set: {
+                'seasonTickets.$.remainderOfTrainings': getRemainderOfTrainings === 0 ? 0 : getRemainderOfTrainings - 1
             }
         }
     );
@@ -218,6 +218,7 @@ const signUpTrainingFunction = async (userData) => {
 };
 
 const getTrainingsCoachFunction = async (userData) => {
+    // console.log(userData);
     const name_Coach = userData.coachLabel;
     const getUsers = await User.find({ 'trainings': { $elemMatch: { coach: name_Coach } } });
     
@@ -240,35 +241,72 @@ const getTrainingsCoachFunction = async (userData) => {
 const visitTrainingFunction = async (trainingInfo) => {
     const trainingID = trainingInfo.trainingID;
     const visit = trainingInfo.visit;
-    const seasonTicketID = trainingInfo.seasonTicketID;
+    let getSeasonTicket = {};
+    let seasonTicketID = {};
     let message = {};
 
-    const user = await User.findOne({ 'seasonTickets._id': seasonTicketID });
-    const getSeasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketID.toString());
+    const user = await User.findOne({ 'seasonTickets.infoTrainings.idTraining': trainingID });
+
+    if (trainingInfo.seasonTicketID !== 'without seasonTickets') {
+        seasonTicketID = trainingInfo.seasonTicketID;
+    } else {
+        getSeasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketID) || user.seasonTickets[user.seasonTickets.length - 1];
+        seasonTicketID = getSeasonTicket && getSeasonTicket._id;
+    }
+
     const getRemainderOfTrainings = getSeasonTicket.remainderOfTrainings;
+
     const getUserTraining = getSeasonTicket.infoTrainings.find(item => item.idTraining.toString() === trainingID.toString());
-    const getVisitTrainee = getUserTraining.visitTrainee;
+
+    const getVisitTraining = getUserTraining.visitTraining;
+
     const getCanceledTraining = getUserTraining.canceledTraining;
 
-    if (getVisitTrainee === false && getCanceledTraining === true) {
-        return message.error = "Повторна відмітка заборонена! Зверніть до адміністрації.";
+    if (getVisitTraining === false && getCanceledTraining === true) {
+        return message.error = "Повторна відмітка заборонена! Зверніться до адміністрації.";
     }
+    // console.log("3")
+    // if (visit === 'true' && seasonTicketID === 'without seasonTickets') {
+    //     const promises = [
+    //         User.updateOne(
+    //             { 'trainings._id': trainingID },
+    //             { $set: { 'trainings.$.visitTraining': true } }
+    //         ),
+    //         User.updateOne(
+    //             { 'seasonTickets.infoTrainings._id': trainingID },
+    //             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true } },
+    //             { arrayFilters: [{ 'elem.infoTrainings._id': trainingID }, { 'innerElem._id': trainingID }] }
+    //         ),
+    //         User.updateOne(
+    //             { 'seasonTickets.infoTrainings._id': trainingID },
+    //             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
+    //             { arrayFilters: [{ 'elem.infoTrainings._id': trainingID }, { 'innerElem._id': trainingID }] }
+    //         ),
+    //         User.updateOne(
+    //             { 'trainings._id': trainingID },
+    //             { $set: { 'trainings.$.canceledTraining': false } }
+    //         )
+
+    //     ];
+    //     await Promise.all(promises);
+    //     return message.error = 'Підтверджено тренування';
+    // }
 
     if (visit === 'true') {
         const promises = [
             User.updateOne(
                 { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.visitTrainee': true } }
+                { $set: { 'trainings.$.visitTraining': true } }
             ),
             User.updateOne(
-                { 'seasonTickets.infoTrainings.idTraining': trainingID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTrainee': true } },
-                { arrayFilters: [{ 'elem.infoTrainings.idTraining': trainingID }, { 'innerElem.idTraining': trainingID }] }
+                { 'seasonTickets._id': seasonTicketID },
+                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true } },
+                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
             ),
             User.updateOne(
-                { 'seasonTickets.infoTrainings.idTraining': trainingID },
+                { 'seasonTickets._id': seasonTicketID },
                 { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
-                { arrayFilters: [{ 'elem.infoTrainings.idTraining': trainingID }, { 'innerElem.idTraining': trainingID }] }
+                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
             ),
             User.updateOne(
                 { 'trainings._id': trainingID },
@@ -281,42 +319,44 @@ const visitTrainingFunction = async (trainingInfo) => {
     }
 
     if (visit === 'false') {
-
         const promises = [
             User.updateOne(
                 { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.visitTrainee': false } }
+                { $set: { 'trainings.$.visitTraining': false } }
             ),
             User.updateOne(
-                { 'seasonTickets.infoTrainings.idTraining': trainingID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTrainee': false } },
-                { arrayFilters: [{ 'elem.infoTrainings.idTraining': trainingID }, { 'innerElem.idTraining': trainingID }] }
+                { 'seasonTickets._id': seasonTicketID },
+                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': false } },
+                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
             ),
             User.updateOne(
-                { 'seasonTickets.infoTrainings.idTraining': trainingID },
+                { 'seasonTickets._id': seasonTicketID },
                 { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': true } },
-                { arrayFilters: [{ 'elem.infoTrainings.idTraining': trainingID }, { 'innerElem.idTraining': trainingID }] }
+                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
             ),
             User.updateOne(
                 { 'trainings._id': trainingID },
                 { $set: { 'trainings.$.canceledTraining': true } }
             ),
             User.updateOne(
-            { 'seasonTickets._id': seasonTicketID },
-            {
-                $set: {
-                    'seasonTickets.$.remainderOfTrainings':
-                        getRemainderOfTrainings === 0 ? 0 : getRemainderOfTrainings + 1
-                }
-            })
+                { 'seasonTickets._id': seasonTicketID },
+                { $set: { 'seasonTickets.$.remainderOfTrainings': getRemainderOfTrainings + 1 } }
+            )
         ];
 
         await Promise.all(promises);
-            
-        return message.error = 'Скасовано';
+
+        return message.error = 'Скасовано тренування';
     }
+
     return getUserTraining;
 };
+
+
+
+
+// without seasonTickets
+
 
 // salaryCoachFunction
 
@@ -352,7 +392,7 @@ const salaryCoachFunction = async (coachInfo) => {
                         instagram: user.instagram,
                         birthday: user.birthday,
                         tel: user.tel,
-                        trainingVisit: training.visitTrainee,
+                        trainingVisit: training.visitTraining,
                         trainingCanceled: training.canceledTraining,
                         isTrainingReminderSent: training.isTrainingReminderSent,
                         trainingSeasonTicketsID: training.seasonTicketsID,
@@ -404,12 +444,12 @@ const salaryCoachFunction = async (coachInfo) => {
 
 //         const updatedTrainings = await User.updateOne(
 //             { 'trainings._id': trainingID },
-//             { $set: { 'trainings.$.visitTrainee': visit } }
+//             { $set: { 'trainings.$.visittraining': visit } }
 //         );
 
 //         const updatedSeasonTickets = await User.updateOne(
 //             { 'seasonTickets.infoTrainings.idTraining': trainingID },
-//             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTrainee': visit } },
+//             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visittraining': visit } },
 //             { arrayFilters: [{ 'elem.infoTrainings.idTraining': trainingID }, { 'innerElem.idTraining': trainingID }] }
 //         );
 
@@ -555,7 +595,7 @@ const logoutUser = async (id) => {
 //     // console.log(find)
 //     if (find) {
 //         const isDuplicateInfo = find.info.filter(infoItem =>
-//             infoItem.day === day && infoItem.time === time && infoItem.kind_trainee === info.kind_trainee && infoItem.date.toISOString().slice(0, 10) === formattedDate
+//             infoItem.day === day && infoItem.time === time && infoItem.kind_training === info.kind_training && infoItem.date.toISOString().slice(0, 10) === formattedDate
 //         );
 //         if (isDuplicateInfo.length > 0) {
 //             console.log(isDuplicateInfo);
@@ -594,8 +634,8 @@ const logoutUser = async (id) => {
 //     const { id, status } = req;
 //     // console.log(req)
 //         await TgBotUser.updateOne({ 'info._id': id._id }, { '$set': { 'info.$.canceledTraining': true } });
-//         await TgBotUser.updateOne({ 'info._id': id._id }, { '$set': { 'info.$.visitTrainee': status.status } });
-//     //    console.log(await TgBotUser.updateOne({ 'info._id': id._id }, { '$set': { 'info.$.visitTrainee': status.status } }));
+//         await TgBotUser.updateOne({ 'info._id': id._id }, { '$set': { 'info.$.visittraining': status.status } });
+//     //    console.log(await TgBotUser.updateOne({ 'info._id': id._id }, { '$set': { 'info.$.visittraining': status.status } }));
 //     const done = await TgBotUser.findOneAndUpdate({ 'info._id': id._id }, (err, doc) => {
 //         if (err) { console.log(err); }
 //         return doc;
@@ -614,12 +654,12 @@ const logoutUser = async (id) => {
 //         if(done.seasonTickets.length > 0){
 //             const getIDSeasonTicket = done.seasonTickets[done.seasonTickets.length - 1]._id;
 //             const getRemainderOfSeasonTicket = done.seasonTickets[done.seasonTickets.length - 1].remainderOfTrainnings - 1;
-//             await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.visitTrainee': true }});
+//             await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.visittraining': true }});
 //             await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.canceledTraining': false } })
 //             await TgBotUser.updateOne({ 'seasonTickets._id': getIDSeasonTicket }, { '$set': { 'seasonTickets.$.remainderOfTrainnings': getRemainderOfSeasonTicket }})
 //             return done;
 //         }
-//         await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.visitTrainee': true }});
+//         await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.visittraining': true }});
 //         await TgBotUser.updateOne({ 'info._id': _id }, { '$set': { 'info.$.canceledTraining': false } })
 //         return done;
 //     };

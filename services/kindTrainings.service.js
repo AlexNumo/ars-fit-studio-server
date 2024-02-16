@@ -1,22 +1,22 @@
 const { KindTrainings } = require('../models/kindTrainings');
 const {createError} = require("../helpers/errors");
 
-const listKindTrainee = async () => {
+const listKindTrainings = async () => {
     return await KindTrainings.find({}, {}, {});
 }
 
-const addKindTrainee = async (req, res) => {
+const addKindTraining = async (req, res) => {
     console.log(req)
     const { id, value, label } = req;
     const find = await KindTrainings.findOne({ id });
     if (find) {
-        throw createError(409, 'Kind-Trainee in use');
+        throw createError(409, 'Kind-Training in use');
     }
     const newCoach = new KindTrainings({id, value, label});
     return await newCoach.save();
 }
 
-const deleteKindTrainee = async (req, res) => {
+const deleteKindTraining = async (req, res) => {
     const { id } = req;
        const find = await KindTrainings.findOne({ id });
     if (find) {
@@ -27,5 +27,5 @@ const deleteKindTrainee = async (req, res) => {
 }
 
 module.exports = {
-    listKindTrainee, addKindTrainee, deleteKindTrainee
+    listKindTrainings, addKindTraining, deleteKindTraining
 }
