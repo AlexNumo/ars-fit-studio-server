@@ -239,10 +239,15 @@ const getTrainingsCoachFunction = async (userData) => {
 };
 
 const visitTrainingFunction = async (trainingInfo) => {
+    
     const trainingID = trainingInfo.trainingID;
+
     const visit = trainingInfo.visit;
+
     let getSeasonTicket = {};
+
     let seasonTicketID = {};
+
     let message = {};
 
     const user = await User.findOne({ 'seasonTickets.infoTrainings.idTraining': trainingID });
