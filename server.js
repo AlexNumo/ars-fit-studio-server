@@ -1,16 +1,18 @@
+require('dotenv').config();
 const app = require('./app');
 const mongoose = require('mongoose');
-require('dotenv').config();
+// const MongoClient = require('mongodb').MongoClient;
+const { PORT, DB_HOST } = process.env;
+// const client = new MongoClient(DB_HOST, { useNewUrlParser: true, useUnifiedTopology: true });
 
-const { PORT, DB_HOST} = process.env;
-
+// ==================================== Start the server =====================================================================================
 
 mongoose.connect(DB_HOST).then(() => {
-    console.log('Database connection successful');
-    app.listen(PORT);
+  console.log('Database connection successful');
+  app.listen(PORT || 3000);
 }).then(() => {
-    console.log(`Server is on ${PORT}`);
+  console.log(`Server is on ${PORT || 3000}`);
 }).catch((err) => {
-    console.log('ERROR', err);
-    process.exit(1);
+  console.log('ERROR', err);
+  process.exit(1);
 });

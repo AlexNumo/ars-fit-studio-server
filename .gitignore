@@ -4,7 +4,6 @@ npm-debug.log
 
 # Local development
 *.dev
-.env
 .DS_Store
 
 # Docker
