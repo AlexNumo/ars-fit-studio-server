@@ -1,5 +1,5 @@
 const { User } = require('../models/user');
-const { arsFitStudioDataBase, client } = require('./mongoDB/mongoDB');
+// const { arsFitStudioDataBase, client } = require('./mongoDB/mongoDB');
 const bcrypt = require('bcryptjs');
 const {createError} = require('../helpers/errors');
 const {SECRET_KEY} = require("../helpers/env");
@@ -11,22 +11,17 @@ const test = async () => {
 }
 
 const listData = async () => {
-    try {
-        const users = await arsFitStudioDataBase.find({}).toArray();
+    const client = 'client';
+    const users = await User.find({ access: client }).select('_id name surname tel instagram birthday');
         // console.log(users)
         return users;
-    } catch (err) {
-        console.log(err);
-    } finally {
-        await client.close();
-    }
 };
 
 const listCoaches = async () => {
     const admin = 'admin';
     const coach = 'coach';
-    const coaches = await User.find({ access: coach }).select('name surname labelAuth tel instagram comments');
-    const admins = await User.find({ access: admin }).select('name surname labelAuth tel instagram comments');
+    const coaches = await User.find({ access: coach }).select('_id name surname labelAuth tel instagram comments');
+    const admins = await User.find({ access: admin }).select('_id name surname labelAuth tel instagram comments');
 
     const coachInformation = coaches.map(coach => {
         return {
@@ -357,14 +352,6 @@ const visitTrainingFunction = async (trainingInfo) => {
     return getUserTraining;
 };
 
-
-
-
-// without seasonTickets
-
-
-// salaryCoachFunction
-
 const salaryCoachFunction = async (coachInfo) => {
     const labelAuth = coachInfo.coach.labelAuth;
     const startDate = new Date(coachInfo.date.startDate);
@@ -408,7 +395,6 @@ const salaryCoachFunction = async (coachInfo) => {
         });
     });
 
-    // Групування тренувань за унікальними датами та часом
     const groupedTrainings = {};
     filteredTrainings.forEach(training => {
         const { date, time } = training;
@@ -418,11 +404,69 @@ const salaryCoachFunction = async (coachInfo) => {
         }
         groupedTrainings[dateTimeKey].users.push(training.user);
     });
-
-    // Виведення результату
-    // console.log(groupedTrainings);
-
     return groupedTrainings;
+};
+
+const seasonTicketsNotConfirmFunction = async () => {
+    const client = 'client';
+
+    const users = await User.find({ access: client });
+
+    const filteredTrainings = users.flatMap(user =>
+        user.seasonTickets
+            .filter(seasonTicket => seasonTicket.confirmation === false)
+            .map(seasonTicket => ({
+                userName: user.name,
+                userSurname: user.surname,
+                userTel: user.tel,
+                userInstagram: user.instagram,
+                idUser: user._id,
+                idSeasonTicket: seasonTicket._id,
+                dateChoose: seasonTicket.dateChoose,
+                confirmation: seasonTicket.confirmation,
+                price: seasonTicket.price,
+                nameSeasonTicket: seasonTicket.name,
+                dateOfBuying: seasonTicket.dateOfBuying,
+            }))
+    );
+
+    // console.log(filteredTrainings);
+
+    return filteredTrainings;
+};
+
+// seasonTicketsConfirmFunction
+
+const seasonTicketsConfirmFunction = async (seasonTicketInfo) => {
+    const seasonTicketID = seasonTicketInfo.idSeasonTicket;
+    const date = new Date(seasonTicketInfo.selectedDateValue);
+    // console.log(date);
+    let message = {};
+
+    const ticket = await User.findOne({
+        'seasonTickets._id': seasonTicketID,
+        'seasonTickets.confirmation': true
+    });
+
+    if (ticket) {
+        message.error = 'Абонемент вже було підтверджено';
+        return message;
+    }
+        const promises = [
+            User.updateOne(
+                { 'seasonTickets._id': seasonTicketID },
+                { $set: { 'seasonTickets.$[elem].confirmation': true } },
+                { arrayFilters: [{ 'elem._id': seasonTicketID }] }
+            ),
+            User.updateOne(
+                { 'seasonTickets._id': seasonTicketID },
+                { $set: { 'seasonTickets.$[elem].dateOfBuying': date } },
+                { arrayFilters: [{ 'elem._id': seasonTicketID }] }
+            ),
+        ];
+
+        await Promise.all(promises);
+    return message.error = 'Підтверджено оплату абонемента';
 };
 
 
@@ -718,11 +762,13 @@ module.exports = {
     getTrainingsCoachFunction,
     visitTrainingFunction,
     salaryCoachFunction,
+    seasonTicketsNotConfirmFunction,
     // addData,
     // canceledTraining,
     // addSeasonTickets,
     // changeSeasonTicketVisit,
     // addInfoTrainingsSeasonTickets,
     // findTGUserByID,
-    upgradeUsers
+    upgradeUsers,
+    seasonTicketsConfirmFunction
 }

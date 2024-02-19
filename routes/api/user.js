@@ -12,6 +12,8 @@ const {
   visitTraining,
   getAllCoaches,
   salaryCoach,
+  seasonTicketsNotConfirm,
+  seasonTicketsConfirm
 } = require('../../controllers/users');
 const router = express.Router();
 
@@ -28,6 +30,8 @@ router.get('/coach', getAllCoaches);
 router.post('/coach', getTrainingsCoach);
 router.post('/coach/visit', visitTraining);
 router.put('/coach/salary', salaryCoach);
+router.get('/seasonTicketsConfirm', seasonTicketsNotConfirm);
+router.post('/seasonTicketsConfirm', seasonTicketsConfirm);
 
 // router.get('/login', loginUser);
 

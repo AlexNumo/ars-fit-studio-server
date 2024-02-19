@@ -2,7 +2,7 @@ const kindTrainingsService = require('../services/kindTrainings.service');
 
 const listOfKindTrainings = async (req, res, next) => {
     try {
-        const all = await kindTrainingsService.listKindTraining();
+        const all = await kindTrainingsService.listKindTrainings();
         res.json(all);
     } catch (e) {
         next(e);

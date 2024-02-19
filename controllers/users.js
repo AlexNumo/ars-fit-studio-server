@@ -122,7 +122,31 @@ const salaryCoach = async (req, res, next) => {
     }
 };
 
-// visitTraining
+const seasonTicketsNotConfirm = async (req, res, next) => {
+    try {
+        const data = await dataUser.seasonTicketsNotConfirmFunction(req.body);
+        return res.status(200).json(data);
+    } catch (e) {
+        if (e.message.includes('duplicate')) {
+            e.status = 400
+        }
+        next(e);
+    }
+};
+
+const seasonTicketsConfirm = async (req, res, next) => {
+    try {
+        const data = await dataUser.seasonTicketsConfirmFunction(req.body);
+        return res.status(200).json(data);
+    } catch (e) {
+        if (e.message.includes('duplicate')) {
+            e.status = 400
+        }
+        next(e);
+    }
+};
+
+// visitTraining seasonTicketsConfirm
 
 
 // =============================================================================================================================================
@@ -264,4 +288,6 @@ module.exports = {
     getTrainingsCoach,
     visitTraining,
     salaryCoach,
+    seasonTicketsNotConfirm,
+    seasonTicketsConfirm,
 }
