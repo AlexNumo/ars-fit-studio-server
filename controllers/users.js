@@ -44,8 +44,20 @@ const loginUser = async (req, res, next) => {
     }
 }
 
+const authUser = async (req, res, next) => {
+    // console.log("req.body: ", req.body);
+    try {
+        const user = await dataUser.authUserFunction(req.body);
+        // console.log(res.json(user))
+        res.json(user);
+    } catch (e) {
+        next(e);
+        return e;
+    }
+}
+
 const upgradeUsers = async (req, res, next) => {
-    console.log("req.body: ", req.body)
+    // console.log("req.body: ", req.body)
     try {
         const data = await dataUser.upgradeUsers(req.body);
         return res.status(200).json(data);
@@ -146,7 +158,19 @@ const seasonTicketsConfirm = async (req, res, next) => {
     }
 };
 
-// visitTraining seasonTicketsConfirm
+const coachTrainingsPeriod = async (req, res, next) => {
+    try {
+        const data = await dataUser.coachTrainingsPeriodFunction(req.body);
+        return res.status(200).json(data);
+    } catch (e) {
+        if (e.message.includes('duplicate')) {
+            e.status = 400
+        }
+        next(e);
+    }
+};
+
+// visitTraining seasonTicketsConfirm coachTrainingsPeriod
 
 
 // =============================================================================================================================================
@@ -283,6 +307,7 @@ module.exports = {
     listOfUsers,
     registrationUser,
     loginUser,
+    authUser,
     logoutUser,
     signUpTraining,
     getTrainingsCoach,
@@ -290,4 +315,5 @@ module.exports = {
     salaryCoach,
     seasonTicketsNotConfirm,
     seasonTicketsConfirm,
+    coachTrainingsPeriod,
 }

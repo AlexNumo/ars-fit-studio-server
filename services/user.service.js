@@ -71,20 +71,33 @@ const registrationUser = async (userData) => {
 
 const loginUser = async ({ tel, password }) => {
     const user = await User.findOne({ tel });
-    if(!user) {
+    if (!user) {
         throw createError(401, 'Login or password is wrong');
     }
     const isValid = await bcrypt.compare(password, user.password);
-    if(!isValid) {
+    if (!isValid) {
         throw createError(401, 'Login or password is wrong');
     }
     const payload = {
         id: user._id,
     };
-    const token = jwt.sign(payload, SECRET_KEY, {expiresIn: '1h'});
-    await User.findByIdAndUpdate(user._id, {token})
+    const token = jwt.sign(payload, SECRET_KEY, { expiresIn: '1h' });
+    await User.findByIdAndUpdate(user._id, { token });
+
+    const updatedUser = await User.findOne({ tel });
+    return updatedUser;
+};
+
+const authUserFunction = async (token) => {
+    const user = await User.findOne({ token: token.token });
+
+    // Перевіряємо, чи токен не протермінований
+    if (!user || Date.now() >= token.expiresIn) {
+        throw createError(401, 'Unauthorized');
+    }
+
     return user;
-}
+};
 
 const upgradeUsers = async (userData, res) => {
     const { id } = userData;
@@ -152,14 +165,21 @@ const signUpTrainingFunction = async (userData) => {
 
     if (existingTraining) {
         messages.error = 'Повторний запис на тренування';
-        return messages={messages: messages};
+        return { newInfoUser: null, messages };
     }
 
-    const getIDSeasonTicket = user.seasonTickets[user.seasonTickets.length - 1]._id;
-    const getRemainderOfTrainings = user.seasonTickets[user.seasonTickets.length - 1].remainderOfTrainings;
-    
-    if (getRemainderOfTrainings === 0) {
-        messages.error = 'Кількість тренувань по абонементу закінчилася. Ви записані як на разове заняття';
+    let getIDSeasonTicket;
+    let getRemainderOfTrainings;
+
+    if (user.seasonTickets && user.seasonTickets.length > 0) {
+        getIDSeasonTicket = user.seasonTickets[user.seasonTickets.length - 1]._id;
+        getRemainderOfTrainings = user.seasonTickets[user.seasonTickets.length - 1].remainderOfTrainings;
+        
+        if (getRemainderOfTrainings === 0) {
+            messages.warning = 'Кількість тренувань по абонементу закінчилася. Ви записані як на разове заняття';
+        }
+    } else {
+        messages.warning = 'Ви не маєте абонементу. Запис на тренування без абонементу';
     }
 
     const updatedUserTrainings = await User.findByIdAndUpdate(
@@ -167,7 +187,7 @@ const signUpTrainingFunction = async (userData) => {
         {
             $push: {
                 trainings: {
-                    seasonTicketsID: getRemainderOfTrainings === 0 ? 'without seasonTickets' : getIDSeasonTicket,
+                    seasonTicketsID: user.seasonTickets ? (getRemainderOfTrainings === 0 ? 'without seasonTickets' : getIDSeasonTicket) : 'without seasonTickets',
                     day: userData.day,
                     time: userData.time,
                     kind_training: userData.kind_training,
@@ -197,17 +217,20 @@ const signUpTrainingFunction = async (userData) => {
         canceledTraining: newInfoUser.canceledTraining,
         isTrainingReminderSent: newInfoUser.isTrainingReminderSent
     };
-    await User.updateOne(
-        { 'seasonTickets._id': getIDSeasonTicket },
-        { 
-            $push: {
-                'seasonTickets.$.infoTrainings': newTrainingInfo
-            },
-            $set: {
-                'seasonTickets.$.remainderOfTrainings': getRemainderOfTrainings === 0 ? 0 : getRemainderOfTrainings - 1
+
+    if (user.seasonTickets && user.seasonTickets.length > 0) {
+        await User.updateOne(
+            { 'seasonTickets._id': getIDSeasonTicket },
+            {
+                $push: {
+                    'seasonTickets.$.infoTrainings': newTrainingInfo
+                },
+                $set: {
+                    'seasonTickets.$.remainderOfTrainings': getRemainderOfTrainings === 0 ? 0 : getRemainderOfTrainings - 1
+                }
             }
-        }
-    );
+        );
+    }
 
     return { newInfoUser, messages };
 };
@@ -215,142 +238,261 @@ const signUpTrainingFunction = async (userData) => {
 const getTrainingsCoachFunction = async (userData) => {
     // console.log(userData);
     const name_Coach = userData.coachLabel;
+    const date = userData.date.slice(0, 10);
     const getUsers = await User.find({ 'trainings': { $elemMatch: { coach: name_Coach } } });
-    
+    // console.log(getUsers)
     const filteredUsers = getUsers.map(user => {
-        const filteredTrainings = user.trainings.filter(training => training.coach === name_Coach);
-        return {
-            name: user.name,
-            surname: user.surname,
-            _id: user._id,
-            instagram: user.instagram,
-            seasonTickets: user.seasonTickets._id,
-            trainings: filteredTrainings,
-        };
+        const filteredTrainings = user.trainings.filter(training => training.coach === name_Coach && training.date.toISOString().slice(0, 10) >= date);
+        // const user = User.findOne({ 'labelAuth': name_Coach });
+        // console.log(user);
+        const getNewArray = filteredTrainings.map(training => {
+            return {
+                name: user.name,
+                surname: user.surname,
+                idUser: user._id,
+                instagram: user.instagram,
+                seasonTicketID: training.seasonTicketsID,
+                day: training.day,
+                time: training.time,
+                kind_training: training.kind_training,
+                date: training.date,
+                coach: training.coach,
+                kind: training.kind,
+                visitTraining: training.visitTraining,
+                canceledTraining: training.canceledTraining,
+                isTrainingReminderSent: training.isTrainingReminderSent,
+                idTraining: training._id,
+            }
+        })
+        return getNewArray;
     });
 
-    // console.log(filteredUsers);
+    // console.log("filteredUsers: ", filteredUsers);
     return filteredUsers;
 };
 
 const visitTrainingFunction = async (trainingInfo) => {
-    
+    const seasonTicketID = trainingInfo.seasonTicketID; // one-time-class ID  without seasonTickets
     const trainingID = trainingInfo.trainingID;
-
     const visit = trainingInfo.visit;
-
-    let getSeasonTicket = {};
-
-    let seasonTicketID = {};
-
     let message = {};
+    const user = await User.findOne({ 'trainings._id': trainingID });
 
-    const user = await User.findOne({ 'seasonTickets.infoTrainings.idTraining': trainingID });
+    const getCanceledTraining = user.trainings.find(item => item._id.toString() === trainingID).canceledTraining;
 
-    if (trainingInfo.seasonTicketID !== 'without seasonTickets') {
-        seasonTicketID = trainingInfo.seasonTicketID;
-    } else {
-        getSeasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketID) || user.seasonTickets[user.seasonTickets.length - 1];
-        seasonTicketID = getSeasonTicket && getSeasonTicket._id;
+    if (getCanceledTraining === true) {
+        message.error = 'Повторна відмітка заборонена. Зверніться до адміністрації'
+        return {message};
+    }
+    if (seasonTicketID === 'one-time-class' && visit === true) {
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        );
+        message.error = 'Підтверджено тренування';
+        return { markTraining, message };
+    }
+    if (seasonTicketID === 'one-time-class' && visit === false) {
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        )
+        message.error = 'Скасовано тренування';
+        
+        return { markTraining, message };
+    }
+    if (seasonTicketID === 'without seasonTickets' && visit === true) {
+        const user = await User.findOne({ 'trainings._id': trainingID });
+        const seasonTickets = user.seasonTickets.filter(training =>
+            training.infoTrainings.some(item => item.idTraining === trainingID)
+        );
+        const seasonTicketsIds = seasonTickets.map(ticket => ticket._id);
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        );
+        const markSeasonTickets = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketsIds },
+            { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': visit, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': !visit } },
+            { arrayFilters: [{ 'elem._id': seasonTicketsIds }, { 'innerElem.idTraining': trainingID }] }
+        )
+        message.error = 'Підтверджено тренування';
+        
+        return { markTraining, markSeasonTickets, message };
+    }
+    if (seasonTicketID === 'without seasonTickets' && visit === false) {
+        const user = await User.findOne({ 'trainings._id': trainingID });
+        const seasonTickets = user.seasonTickets.filter(training =>
+            training.infoTrainings.some(item => item.idTraining === trainingID)
+        );
+        const seasonTicketsIds = seasonTickets.map(ticket => ticket._id);
+
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        );
+        const markSeasonTickets = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketsIds },
+            { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': visit, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': !visit } },
+            { arrayFilters: [{ 'elem._id': seasonTicketsIds }, { 'innerElem.idTraining': trainingID }] }
+        );
+        const addRemainderOfTrainings = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketsIds },
+            { $inc: { 'seasonTickets.$.remainderOfTrainings': 1 } }
+        )
+        message.error = 'Скасовано тренування';
+        
+        return { markTraining, markSeasonTickets, addRemainderOfTrainings, message };
+    }
+    if (seasonTicketID !== 'without seasonTickets' && seasonTicketID !== 'one-time-class' && visit === true) {
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        );
+        const markSeasonTickets = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketID },
+            { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': visit, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': !visit } },
+            { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
+        )
+        message.error = 'Підтверджено тренування';
+        
+        return { markTraining, markSeasonTickets, message };
+    }
+    if (seasonTicketID !== 'without seasonTickets' && seasonTicketID !== 'one-time-class' && visit === false) {
+        const markTraining = await User.updateOne(
+            { 'trainings._id': trainingID },
+            { $set: { 'trainings.$.visitTraining': visit, 'trainings.$.canceledTraining': !visit } }
+        );
+        const markSeasonTickets = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketID },
+            { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': visit, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': !visit } },
+            { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
+        );
+        const addRemainderOfTrainings = await User.updateOne(
+            { 'seasonTickets._id': seasonTicketID },
+            { $inc: { 'seasonTickets.$.remainderOfTrainings': 1 } }
+        )
+        message.error = 'Скасовано тренування';
+        
+        return { markTraining, markSeasonTickets, addRemainderOfTrainings, message };
     }
 
-    const getRemainderOfTrainings = getSeasonTicket.remainderOfTrainings;
-
-    const getUserTraining = getSeasonTicket.infoTrainings.find(item => item.idTraining.toString() === trainingID.toString());
-
-    const getVisitTraining = getUserTraining.visitTraining;
-
-    const getCanceledTraining = getUserTraining.canceledTraining;
-
-    if (getVisitTraining === false && getCanceledTraining === true) {
-        return message.error = "Повторна відмітка заборонена! Зверніться до адміністрації.";
-    }
-    // console.log("3")
-    // if (visit === 'true' && seasonTicketID === 'without seasonTickets') {
-    //     const promises = [
-    //         User.updateOne(
-    //             { 'trainings._id': trainingID },
-    //             { $set: { 'trainings.$.visitTraining': true } }
-    //         ),
-    //         User.updateOne(
-    //             { 'seasonTickets.infoTrainings._id': trainingID },
-    //             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true } },
-    //             { arrayFilters: [{ 'elem.infoTrainings._id': trainingID }, { 'innerElem._id': trainingID }] }
-    //         ),
-    //         User.updateOne(
-    //             { 'seasonTickets.infoTrainings._id': trainingID },
-    //             { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
-    //             { arrayFilters: [{ 'elem.infoTrainings._id': trainingID }, { 'innerElem._id': trainingID }] }
-    //         ),
-    //         User.updateOne(
-    //             { 'trainings._id': trainingID },
-    //             { $set: { 'trainings.$.canceledTraining': false } }
-    //         )
-
-    //     ];
-    //     await Promise.all(promises);
-    //     return message.error = 'Підтверджено тренування';
-    // }
-
-    if (visit === 'true') {
-        const promises = [
-            User.updateOne(
-                { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.visitTraining': true } }
-            ),
-            User.updateOne(
-                { 'seasonTickets._id': seasonTicketID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true } },
-                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
-            ),
-            User.updateOne(
-                { 'seasonTickets._id': seasonTicketID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
-                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
-            ),
-            User.updateOne(
-                { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.canceledTraining': false } }
-            )
-        ];
-
-        await Promise.all(promises);
-        return message.error = 'Підтверджено тренування';
-    }
-
-    if (visit === 'false') {
-        const promises = [
-            User.updateOne(
-                { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.visitTraining': false } }
-            ),
-            User.updateOne(
-                { 'seasonTickets._id': seasonTicketID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': false } },
-                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
-            ),
-            User.updateOne(
-                { 'seasonTickets._id': seasonTicketID },
-                { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': true } },
-                { arrayFilters: [{ 'elem._id': seasonTicketID }, { 'innerElem.idTraining': trainingID }] }
-            ),
-            User.updateOne(
-                { 'trainings._id': trainingID },
-                { $set: { 'trainings.$.canceledTraining': true } }
-            ),
-            User.updateOne(
-                { 'seasonTickets._id': seasonTicketID },
-                { $set: { 'seasonTickets.$.remainderOfTrainings': getRemainderOfTrainings + 1 } }
-            )
-        ];
-
-        await Promise.all(promises);
-
-        return message.error = 'Скасовано тренування';
-    }
-
-    return getUserTraining;
+    return { message };
 };
+
+
+
+
+// const visitTrainingFunction = async (trainingInfo) => {
+//     const { trainingID, visit, seasonTicketID } = trainingInfo;
+
+//     let message = {};
+    
+//     try {
+//         // Перевірка наявності значень trainingID, visit та seasonTicketID
+//         if (!trainingID || !visit || !seasonTicketID) {
+//             throw new Error("Не всі обов'язкові дані надані.");
+//         }
+
+//         // Пошук користувача
+//         const user = await User.findOne({ 'seasonTickets.infoTrainings.idTraining': trainingID });
+
+//         // Перевірка наявності користувача
+//         if (!user) {
+//             throw new Error("Користувача з таким trainingID не знайдено.");
+//         }
+
+//         let seasonTicketIDToUse = seasonTicketID;
+
+//         // Перевірка наявності seasonTicketID і пошук квитка, якщо він відсутній
+//         if (seasonTicketID === 'without seasonTickets') {
+//             const getSeasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketID) ? user.seasonTickets.find(item => item._id.toString() === seasonTicketID) : user.seasonTickets[user.seasonTickets.length - 1];
+//             seasonTicketIDToUse = getSeasonTicket && getSeasonTicket._id;
+//             // console.log(getSeasonTicket)
+//         }
+
+//         // Пошук квитка
+//         const seasonTicket = user.seasonTickets.find(item => item._id.toString() === seasonTicketIDToUse.toString());
+//             console.log(user)
+        
+//         // Перевірка наявності квитка
+//         if (!seasonTicket) {
+//             throw new Error("Квиток з таким seasonTicketID не знайдено.");
+//         }
+
+//         const getUserTraining = seasonTicket.infoTrainings.find(item => item.idTraining.toString() === trainingID.toString());
+
+//         // Перевірка наявності тренування у квитка
+//         if (!getUserTraining) {
+//             throw new Error("Тренування з таким trainingID не знайдено в квитку.");
+//         }
+
+//         const { visitTraining, canceledTraining } = getUserTraining;
+
+//         // Перевірка на наявність змінних
+//         if (typeof visitTraining !== 'boolean' || typeof canceledTraining !== 'boolean') {
+//             throw new Error("Неправильний формат даних для відвідування або скасування тренування.");
+//         }
+
+//         if (visitTraining === false && canceledTraining === true) {
+//             throw new Error("Повторна відмітка заборонена! Зверніться до адміністрації.");
+//         }
+        
+//         const promises = [
+//             User.updateOne(
+//                 { 'trainings._id': trainingID },
+//                 { $set: { 'trainings.$.visitTraining': true, 'trainings.$.canceledTraining': false } }
+//             ),
+//             User.updateOne(
+//                 { 'seasonTickets._id': seasonTicketIDToUse },
+//                 { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
+//                 { arrayFilters: [{ 'elem._id': seasonTicketIDToUse }, { 'innerElem.idTraining': trainingID }] }
+//             )
+//         ];
+
+//         if (visit === 'false') {
+//             promises.push(
+//                 User.updateOne(
+//                     { 'trainings._id': trainingID },
+//                     { $set: { 'trainings.$.visitTraining': false, 'trainings.$.canceledTraining': true } }
+//                 ),
+//                 User.updateOne(
+//                     { 'seasonTickets._id': seasonTicketIDToUse },
+//                     { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': false, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': true } },
+//                     { arrayFilters: [{ 'elem._id': seasonTicketIDToUse }, { 'innerElem.idTraining': trainingID }] }
+//                 ),
+//                 User.updateOne(
+//                     { 'seasonTickets._id': seasonTicketIDToUse },
+//                     { $inc: { 'seasonTickets.$.remainderOfTrainings': 1 } }
+//                 )
+//             );
+//         } else {
+//             // Додано оновлення для випадку, коли visit === 'true'
+//             promises.push(
+//                 User.updateOne(
+//                     { 'trainings._id': trainingID },
+//                     { $set: { 'trainings.$.visitTraining': true, 'trainings.$.canceledTraining': false } }
+//                 ),
+//                 User.updateOne(
+//                     { 'seasonTickets._id': seasonTicketIDToUse },
+//                     { $set: { 'seasonTickets.$[elem].infoTrainings.$[innerElem].visitTraining': true, 'seasonTickets.$[elem].infoTrainings.$[innerElem].canceledTraining': false } },
+//                     { arrayFilters: [{ 'elem._id': seasonTicketIDToUse }, { 'innerElem.idTraining': trainingID }] }
+//                 )
+//             );
+//         }
+
+//         await Promise.all(promises);
+        
+//         message.error = visit === 'true' ? 'Підтверджено тренування' : 'Скасовано тренування';
+//         return message;
+//     } catch (error) {
+//         console.error(error);
+//         message.error = 'Повторна відмітка заборонена! Зверніться до адміністрації.';
+//         return message;
+//     }
+// };
+
+
 
 const salaryCoachFunction = async (coachInfo) => {
     const labelAuth = coachInfo.coach.labelAuth;
@@ -469,6 +611,62 @@ const seasonTicketsConfirmFunction = async (seasonTicketInfo) => {
     return message.error = 'Підтверджено оплату абонемента';
 };
 
+// coachTrainingsPeriodFunction
+const coachTrainingsPeriodFunction = async (coachInfo) => {
+    const labelAuth = coachInfo.coach.labelAuth;
+    const startDate = new Date(coachInfo.date.startDate);
+    const endDate = new Date(coachInfo.date.endDate);
+
+    const getUsers = await User.find({
+        'trainings': {
+            $elemMatch: {
+                coach: labelAuth,
+                date: {
+                    $gte: startDate.toISOString(),
+                    $lte: endDate.toISOString()
+                }
+            }
+        }
+    });
+
+    const filteredTrainings = [];
+
+    getUsers.forEach(user => {
+        user.trainings.forEach(training => {
+            const trainingDate = new Date(training.date);
+            if (training.coach === labelAuth && trainingDate >= startDate && trainingDate <= endDate) {
+                filteredTrainings.push({
+                    ...training.toObject(),
+                    user: {
+                        _id: user._id,
+                        name: user.name,
+                        surname: user.surname,
+                        instagram: user.instagram,
+                        birthday: user.birthday,
+                        tel: user.tel,
+                        trainingVisit: training.visitTraining,
+                        trainingCanceled: training.canceledTraining,
+                        isTrainingReminderSent: training.isTrainingReminderSent,
+                        trainingSeasonTicketsID: training.seasonTicketsID,
+                        trainingId: training._id,
+                    }
+                });
+            }
+        });
+    });
+
+    const groupedTrainings = {};
+    filteredTrainings.forEach(training => {
+        const { date, time } = training;
+        const dateTimeKey = `${date.toISOString().slice(0, 10)}_${time}`;
+        if (!groupedTrainings[dateTimeKey]) {
+            groupedTrainings[dateTimeKey] = { training, users: [] };
+        }
+        groupedTrainings[dateTimeKey].users.push(training.user);
+    });
+    // console.log(groupedTrainings)
+    return groupedTrainings;
+};
 
 
 
@@ -756,6 +954,7 @@ module.exports = {
     listCoaches,
     registrationUser,
     loginUser,
+    authUserFunction,
     logoutUser,
     upgradeUserPassword,
     signUpTrainingFunction,
@@ -763,6 +962,7 @@ module.exports = {
     visitTrainingFunction,
     salaryCoachFunction,
     seasonTicketsNotConfirmFunction,
+    coachTrainingsPeriodFunction,
     // addData,
     // canceledTraining,
     // addSeasonTickets,
